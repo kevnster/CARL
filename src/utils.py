@@ -2,6 +2,7 @@
 import torch, gc
 import numpy as np
 from torch import nn
+import matplotlib.pyplot as plt
 
 def convert_tensor_to_rgb(input_tensor: torch.Tensor) -> np.ndarray:
     """
@@ -122,3 +123,43 @@ def generate_model_filename(prefix: str = '', model_name: str = '', input_size: 
     gc.collect()
     return filename
 
+def compute_epoch_loss(model, data_loader, loss_fn, device):
+    """Compute the average loss for a model over all data in a loader."""
+    model.eval()
+    total_loss, num_samples = 0.0, 0
+    with torch.no_grad():
+        for inputs, _ in data_loader:
+            inputs = inputs.to(device)
+            outputs = model(inputs)
+            loss = loss_fn(outputs, inputs, reduction='sum')
+            num_samples += inputs.size(0)
+            total_loss += loss
+    return total_loss / num_samples
+
+def plot_training_loss(minibatch_losses, num_epochs, averaging_iterations=100, custom_label=''):
+    """Plot the training loss per minibatch and running average over epochs."""
+    iter_per_epoch = len(minibatch_losses) // num_epochs
+    plt.figure()
+    ax1 = plt.subplot(1, 1, 1)
+    ax1.plot(range(len(minibatch_losses)), minibatch_losses, label=f'Minibatch Loss {custom_label}')
+    ax1.set_xlabel('Iterations')
+    ax1.set_ylabel('Loss')
+    ax1.set_ylim([0, np.max(minibatch_losses[1000:]) * 1.5])
+
+    # Running average
+    ax1.plot(np.convolve(minibatch_losses, np.ones(averaging_iterations) / averaging_iterations, mode='valid'),
+             label=f'Running Average {custom_label}')
+    ax1.legend()
+
+    # Secondary x-axis for epochs
+    ax2 = ax1.twiny()
+    newlabel = list(range(num_epochs + 1))
+    newpos = [e * iter_per_epoch for e in newlabel]
+    ax2.set_xticks(newpos[::10])
+    ax2.set_xticklabels(newlabel[::10])
+    ax2.xaxis.set_ticks_position('bottom')
+    ax2.xaxis.set_label_position('bottom')
+    ax2.spines['bottom'].set_position(('outward', 45))
+    ax2.set_xlabel('Epochs')
+    ax2.set_xlim(ax1.get_xlim())
+    plt.tight_layout()
