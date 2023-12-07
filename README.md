@@ -26,3 +26,5 @@ pip install -r requirements.txt
 ## References
 
 - https://github.com/allenai/ai2thor
+- https://github.com/MorvanZhou/pytorch-A3C
+- https://github.com/gianluca-maselli/A3C
