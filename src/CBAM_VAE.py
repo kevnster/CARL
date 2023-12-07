@@ -1,7 +1,6 @@
 # IMPORTS
 import torch
 import torch.nn as nn
-import torch.nn.functional as Fun
 
 class TensorReshaper(nn.Module):
     """
@@ -122,4 +121,104 @@ class SpatialFocusModule(nn.Module):
 
         return spatially_attended
 
+class AttentionVAE(nn.Module):
+    """
+    An enhanced Variational Autoencoder incorporating both Channel and Spatial Attention mechanisms.
+    This architecture is designed for more efficient and specific image reconstruction tasks.
+    Reference: Attention-Based Autoencoder for Image Reconstruction
+    """
+    def __init__(self, latent_dim):
+        super(AttentionVAE, self).__init__()
+
+        self.latent_dim = latent_dim
+
+        self.encode = nn.Sequential(
+            nn.Conv2d(3, 32, stride=2, kernel_size=3, bias=False, padding=1),
+            SpatialFocusModule(32),
+            nn.BatchNorm2d(32),
+            nn.PReLU(),
+            nn.Dropout2d(0.25),
+            nn.Conv2d(32, 64, stride=2, kernel_size=3, bias=False, padding=1),
+            nn.BatchNorm2d(64),
+            nn.PReLU(),
+            nn.Dropout2d(0.25),
+            nn.Conv2d(64, 64, stride=2, kernel_size=3, bias=False, padding=1),
+            nn.BatchNorm2d(64),
+            nn.PReLU(),
+            nn.Dropout2d(0.25),
+            nn.Conv2d(64, 64, stride=2, kernel_size=3, bias=False, padding=1),
+            nn.BatchNorm2d(64),
+            nn.PReLU(),
+            nn.Dropout2d(0.25),
+            nn.Conv2d(64, 64, stride=2, kernel_size=3, bias=False, padding=1),
+            ChannelFocusModule(64),
+            nn.BatchNorm2d(64),
+            nn.PReLU(),
+            nn.Flatten(),
+            nn.Linear(4096, 512),
+            nn.BatchNorm1d(512),
+            nn.PReLU()
+        )
+
+        self.latent_mean = nn.Sequential(
+            nn.Linear(512, self.latent_dim)
+        )
+        self.latent_log_var = nn.Sequential(
+            nn.Linear(512, self.latent_dim)
+        )
+        self.latent_to_feature = nn.Sequential(
+            nn.Linear(self.latent_dim, 512),
+            nn.BatchNorm1d(512),
+            nn.PReLU()
+        )
+
+        self.decode = nn.Sequential(
+            nn.Linear(512, 4096),
+            nn.BatchNorm1d(4096),
+            nn.PReLU(),
+            TensorReshaper(-1, 64, 8, 8),
+            nn.ConvTranspose2d(64, 64, stride=2, kernel_size=3),
+            nn.BatchNorm2d(64),
+            nn.PReLU(),
+            nn.Dropout2d(0.25),
+            nn.ConvTranspose2d(64, 64, stride=2, kernel_size=3, padding=1),
+            nn.BatchNorm2d(64),
+            nn.PReLU(),
+            nn.Dropout2d(0.25),
+            nn.ConvTranspose2d(64, 64, stride=2, kernel_size=3, padding=1),
+            nn.BatchNorm2d(64),
+            nn.PReLU(),
+            nn.Dropout2d(0.25),
+            nn.ConvTranspose2d(64, 32, stride=2, kernel_size=3, padding=1),
+            nn.BatchNorm2d(32),
+            nn.PReLU(),
+            nn.Dropout2d(0.25),
+            nn.ConvTranspose2d(32, 3, stride=2, kernel_size=3, padding=1),
+            TensorTrimmer(),
+            nn.ReLU(inplace=True)
+        )
+
+    def encode_fn(self, observation):
+        encoded = self.encode(observation)
+        mean, log_var = self.latent_mean(encoded), self.latent_log_var(encoded)
+        z = self.add_noise(mean, log_var)
+        return z
+
+    def navigation(self, current_obs, target_obs):
+        current_z = self.encode_fn(current_obs)
+        target_z = self.encode_fn(target_obs)
+        return current_z, target_z
+
+    def add_noise(self, mu, log_var):
+        epsilon = torch.randn(mu.size(0), mu.size(1)).to(mu.device)
+        z = mu + epsilon * torch.exp(log_var / 2.0)
+        return z
+
+    def forward(self, input_tensor):
+        encoded = self.encode(input_tensor)
+        mean, log_var = self.latent_mean(encoded), self.latent_log_var(encoded)
+        z = self.add_noise(mean, log_var)
+        feature_map = self.latent_to_feature(z)
+        decoded = self.decode(feature_map)
+        return z, mean, log_var, decoded
 
